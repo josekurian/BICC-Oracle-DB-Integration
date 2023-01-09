@@ -1,7 +1,7 @@
 CREATE OR REPLACE PACKAGE BODY APPS_BICC_UTIL_PKG IS
     /* $Header: APPS_BICC_UTIL_PKG.pkb  ver 1.0 06.01.2023 $
     +==========================================================================+
-    |                        Copyright (c) 2023. Apps Akademi                  |
+    |                   Copyright (c) 2023. Apps Akademi                       |
     |                        All rights reserved                               |
     +==========================================================================+
     |                                                                          |
@@ -12,6 +12,7 @@ CREATE OR REPLACE PACKAGE BODY APPS_BICC_UTIL_PKG IS
     |            extracted from Oracle Fusion Business Intelligence Connector  |
     +==========================================================================+
     */
+    -- OIC'den de aynı değişkenlere ulaşılabilmek amacıyla kullanılacak
     FUNCTION GET_LOOKUP_CONSTANT(P_LOOKUP_TYPE IN VARCHAR2, P_LOOKUP_CODE IN VARCHAR2) RETURN VARCHAR2 IS
     BEGIN
         IF P_LOOKUP_TYPE = 'GLOBAL' THEN
@@ -32,6 +33,7 @@ CREATE OR REPLACE PACKAGE BODY APPS_BICC_UTIL_PKG IS
             END IF;
         END IF;
     END GET_LOOKUP_CONSTANT;
+    -- Manifest dosyalarından flat file bilgilerini okuyacak
     PROCEDURE MANAGE_MANIFESTS(P_DOCUMENT_ID IN VARCHAR2, P_FORCE_IF_PROCESSED IN VARCHAR2) IS
         C_PROCEDURE_AUDIT_NAME      VARCHAR2(400) := '(APPS_BICC_UTIL_PKG.MANAGE_MANIFESTS) ' || P_DOCUMENT_ID;
         C_NEWLINE_CHARACTER         VARCHAR2(400) := chr(10);

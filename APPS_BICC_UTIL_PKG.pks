@@ -1,7 +1,7 @@
 CREATE OR REPLACE PACKAGE APPS_BICC_UTIL_PKG IS
     /* $Header: APPS_BICC_UTIL_PKG.pks  ver 1.0 06.01.2023 $
     +==========================================================================+
-    |                        Copyright (c) 2023. Apps Akademi                  |
+    |                   Copyright (c) 2023. Apps Akademi                       |
     |                        All rights reserved                               |
     +==========================================================================+
     |                                                                          |
