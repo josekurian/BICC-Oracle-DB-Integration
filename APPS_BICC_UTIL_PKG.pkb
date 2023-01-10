@@ -104,4 +104,90 @@ CREATE OR REPLACE PACKAGE BODY APPS_BICC_UTIL_PKG IS
             END LOOP;
         COMMIT;
     END MANAGE_MANIFESTS;
+
+    PROCEDURE MANAGE_FLAT_FILE(P_DOCUMENT_ID IN VARCHAR2) IS
+        P_DOCUMENT_ID                     APPS_BICC_EXT_FILES.DOCUMENT_ID%TYPE := 2506337;
+        L_EXT_FILE_ROW                    APPS_BICC_EXT_FILES%ROWTYPE;
+        L_STATUS_CODE                     VARCHAR2(4000);
+        L_EXT_TABLE_COLUMN_SQL_UPPER_PART CLOB;
+        L_EXT_TABLE_COLUMN_SQL_LOWER_PART CLOB;
+        L_EXT_TABLE_NAME                  VARCHAR2(400)                        := 'SONER_TEMP';
+        L_EXT_TABLE_DIR_NAME              VARCHAR2(400)                        := 'EXT_TABLE_DIR';
+        L_EXT_TABLE_CREATE_SQL            CLOB;
+        CURSOR CUR_COL_DEF(P_FILE_NAME IN VARCHAR2) IS
+            SELECT
+                COL_NAME,
+                COL_DATATYPE,
+                COL_SIZE,
+                COL_PRECISION,
+                decode(
+                        COL_DATATYPE, 'VARCHAR', ('VARCHAR2(' || COL_SIZE || ')'),
+                        'NUMERIC', ('NUMBER(' || COL_SIZE || ',' || COL_PRECISION || ')'),
+                        'TIMESTAMP', COL_DATATYPE,
+                        'DATE', 'COL_DATATYPE',
+                        (COL_DATATYPE || '(' || COL_SIZE || ',' || COL_PRECISION || ')')
+                    ) AS SC_DT_PART,
+                decode(
+                        COL_DATATYPE, 'TIMESTAMP',
+                        (COL_NAME || ' char(26)  date_format TIMESTAMP MASK "yyyy-mm-dd hh24:mi:ss.ff6"'),
+                        'DATE', (COL_NAME || ' char(26)  date_format TIMESTAMP MASK "yyyy-mm-dd hh24:mi:ss.ff6"'),
+                        COL_NAME
+                    ) AS SC_CSV_PART
+            FROM
+                APPS_BICC_TAB_COLUMNS
+            WHERE
+                P_FILE_NAME LIKE '%' || replace(lower(VO_NAME), '.', '_') || '%'
+            ORDER BY COL_DATATYPE
+        ;
+    BEGIN
+        SELECT
+            *
+        INTO L_EXT_FILE_ROW
+        FROM
+            APPS_BICC_EXT_FILES
+        WHERE
+            DOCUMENT_ID = P_DOCUMENT_ID;
+
+        FOR REC_COL_DEF IN CUR_COL_DEF(L_EXT_FILE_ROW.FILE_NAME)
+            LOOP
+                L_EXT_TABLE_COLUMN_SQL_UPPER_PART := L_EXT_TABLE_COLUMN_SQL_UPPER_PART || REC_COL_DEF.COL_NAME;
+                L_EXT_TABLE_COLUMN_SQL_UPPER_PART := L_EXT_TABLE_COLUMN_SQL_UPPER_PART || ' ';
+                L_EXT_TABLE_COLUMN_SQL_UPPER_PART := L_EXT_TABLE_COLUMN_SQL_UPPER_PART || REC_COL_DEF.SC_DT_PART;
+                L_EXT_TABLE_COLUMN_SQL_UPPER_PART := L_EXT_TABLE_COLUMN_SQL_UPPER_PART || ',';
+
+                L_EXT_TABLE_COLUMN_SQL_LOWER_PART := L_EXT_TABLE_COLUMN_SQL_LOWER_PART || REC_COL_DEF.SC_CSV_PART;
+                L_EXT_TABLE_COLUMN_SQL_LOWER_PART := L_EXT_TABLE_COLUMN_SQL_LOWER_PART || ',';
+            END LOOP;
+        L_EXT_TABLE_COLUMN_SQL_UPPER_PART := rtrim(L_EXT_TABLE_COLUMN_SQL_UPPER_PART, ',');
+        L_EXT_TABLE_COLUMN_SQL_LOWER_PART := rtrim(L_EXT_TABLE_COLUMN_SQL_LOWER_PART, ',');
+
+        L_EXT_TABLE_CREATE_SQL := 'CREATE TABLE ' || L_EXT_TABLE_NAME || '(' || chr(13) ||
+                                  L_EXT_TABLE_COLUMN_SQL_UPPER_PART || chr(13) ||
+                                  ')' || chr(13) ||
+                                  'ORGANIZATION EXTERNAL (
+                                    TYPE ORACLE_LOADER
+                                    DEFAULT DIRECTORY "' || L_EXT_TABLE_DIR_NAME || '"
+                                ACCESS PARAMETERS (
+                                    records delimited  by newline
+                                    CHARACTERSET AL32UTF8
+                                    FIELD NAMES FIRST FILE
+                                    fields  terminated by '',''
+                                    optionally enclosed by ''"''
+                                    missing field values are null (' || chr(13) ||
+                                  L_EXT_TABLE_COLUMN_SQL_LOWER_PART || chr(13) ||
+                                  ')
+                              )
+                              LOCATION (' || chr(13) ||
+                                  '"' || L_EXT_TABLE_DIR_NAME || '": ''' || L_EXT_FILE_ROW.FILE_NAME || '''' ||
+                                  chr(13) ||
+                                  ')
+                                )
+                                REJECT LIMIT UNLIMITED';
+
+        DBMS_OUTPUT.PUT_LINE('DROP TABLE ' || L_EXT_TABLE_NAME);
+        DBMS_OUTPUT.PUT_LINE(L_EXT_TABLE_CREATE_SQL);
+        --DBMS_OUTPUT.PUT_LINE(L_EXT_TABLE_COLUMN_SQL_LOWER_PART);
+    EXCEPTION
+        WHEN NO_DATA_FOUND THEN NULL;
+    END;
 END;

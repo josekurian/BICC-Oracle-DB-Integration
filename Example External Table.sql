@@ -24,4 +24,4 @@ ORGANIZATION EXTERNAL (
       "EXT_TABLE_DIR":'file_fscmtopmodelam_scmextractam_invbiccextractam_inventorytransactiondetailextractpvo-batch1485712016-20230110_105330.csv'
     )
 )
-REJECT LIMIT UNLIMITED;
+REJECT LIMIT UNLIMITED ;
