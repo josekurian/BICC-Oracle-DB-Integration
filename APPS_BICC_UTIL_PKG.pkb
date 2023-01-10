@@ -30,12 +30,15 @@ CREATE OR REPLACE PACKAGE BODY APPS_BICC_UTIL_PKG IS
                 RETURN APPS_BICC_UTIL_PKG.G_SH_UNZIP_SCRIPT_FILENAME;
             ELSIF P_LOOKUP_CODE = 'UNZIP_SCRIPT_DIRECTORY' THEN
                 RETURN APPS_BICC_UTIL_PKG.G_SH_UNZIP_SCRIPT_DIRECTORY;
+            ELSIF P_LOOKUP_CODE = 'FLAT_FILE_UNZIPPED_STATUS' THEN
+                RETURN APPS_BICC_UTIL_PKG.G_FLAT_FILE_UNZIPPED_STATUS;
             END IF;
         END IF;
     END GET_LOOKUP_CONSTANT;
     -- Manifest dosyalarından flat file bilgilerini okuyacak
     PROCEDURE MANAGE_MANIFESTS(P_DOCUMENT_ID IN VARCHAR2, P_FORCE_IF_PROCESSED IN VARCHAR2) IS
-        C_PROCEDURE_AUDIT_NAME      VARCHAR2(400) := '(APPS_BICC_UTIL_PKG.MANAGE_MANIFESTS) ' || P_DOCUMENT_ID;
+        C_PROCEDURE_AUDIT_NAME      VARCHAR2(400) := '(APPS_BICC_UTIL_PKG.MANAGE_MANIFESTS)';
+        L_PROCEDURE_AUDIT_NAME      VARCHAR2(400) := C_PROCEDURE_AUDIT_NAME;
         C_NEWLINE_CHARACTER         VARCHAR2(400) := chr(10);
         C_MANIFEST_COLUMN_SEPARATOR VARCHAR2(400) := ';';
         CURSOR CUR_MNFST IS
@@ -51,6 +54,7 @@ CREATE OR REPLACE PACKAGE BODY APPS_BICC_UTIL_PKG IS
         FOR REC_MNFST IN CUR_MNFST
             LOOP
                 BEGIN
+                    L_PROCEDURE_AUDIT_NAME := C_PROCEDURE_AUDIT_NAME || ' ' || REC_MNFST.DOCUMENT_ID;
                     -- Manifest içerisindeki flat file bilgileri okunup tabloya giriliyor
                     INSERT
                     INTO APPS_BICC_EXT_FILES(
@@ -85,9 +89,9 @@ CREATE OR REPLACE PACKAGE BODY APPS_BICC_UTIL_PKG IS
                         regexp_substr(CONTENT, '[^' || C_MANIFEST_COLUMN_SEPARATOR || ']+', 1, 1) AS FILE_NAME,
                         NULL AS CONTENT,
                         sysdate AS CREATION_DATE,
-                        C_PROCEDURE_AUDIT_NAME AS CREATED_BY,
+                        L_PROCEDURE_AUDIT_NAME AS CREATED_BY,
                         sysdate AS LAST_UPDATE_DATE,
-                        C_PROCEDURE_AUDIT_NAME AS LAST_UPDATED_BY,
+                        L_PROCEDURE_AUDIT_NAME AS LAST_UPDATED_BY,
                         G_PENDING_FLAT_FILE_DOWNLOAD_STATUS AS STATUS
                     FROM
                         RAW_ROWS;
@@ -97,7 +101,7 @@ CREATE OR REPLACE PACKAGE BODY APPS_BICC_UTIL_PKG IS
                     SET
                         STATUS = G_DONE_MANIFEST_STATUS,
                         LAST_UPDATE_DATE = sysdate,
-                        LAST_UPDATED_BY = C_PROCEDURE_AUDIT_NAME
+                        LAST_UPDATED_BY = L_PROCEDURE_AUDIT_NAME
                     WHERE
                         DOCUMENT_ID = REC_MNFST.DOCUMENT_ID;
                 END;

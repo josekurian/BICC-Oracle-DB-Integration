@@ -20,14 +20,10 @@ CREATE OR REPLACE PACKAGE APPS_BICC_UTIL_PKG IS
     G_PENDING_FLAT_FILE_DOWNLOAD_STATUS APPS_BICC_EXT_FILES.STATUS%TYPE := 'Indirme Bekleniyor';
     -- Flat file indirildikten sonra işlenmeyi beklerken alacağı statü bilgisi
     G_FLAT_FILE_DOWNLOADED_STATUS APPS_BICC_EXT_FILES.STATUS%TYPE := 'Indirildi';
+    -- Flat file zip'ten çıkarıldıktan sonra işlenmeyi beklerken alacağı statü bilgisi
+    G_FLAT_FILE_UNZIPPED_STATUS APPS_BICC_EXT_FILES.STATUS%TYPE := 'Unzip Edildi';
     -- Flat file'ların yazılacağı işletim sistemi dizini
     G_FLAT_FILE_DOWNLOAD_DIR VARCHAR2(4000) := '/oradata/external';
-    -- Zip dosyasını extract edecek script
-    G_SH_UNZIP_SCRIPT VARCHAR2(4000) := 'unzip -o ';
-    -- Script dosya adı
-    G_SH_UNZIP_SCRIPT_FILENAME VARCHAR2(4000) := 'unzip.sh';
-    -- Script yazılacak olan lokasyon
-    G_SH_UNZIP_SCRIPT_DIRECTORY VARCHAR2(4000) := G_FLAT_FILE_DOWNLOAD_DIR;
     FUNCTION GET_LOOKUP_CONSTANT(P_LOOKUP_TYPE IN VARCHAR2, P_LOOKUP_CODE IN VARCHAR2) RETURN VARCHAR2;
     PROCEDURE MANAGE_MANIFESTS(P_DOCUMENT_ID IN VARCHAR2, P_FORCE_IF_PROCESSED IN VARCHAR2);
 END;
