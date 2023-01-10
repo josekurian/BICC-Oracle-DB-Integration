@@ -22,8 +22,6 @@ CREATE OR REPLACE PACKAGE APPS_BICC_UTIL_PKG IS
     G_FLAT_FILE_DOWNLOADED_STATUS APPS_BICC_EXT_FILES.STATUS%TYPE := 'Indirildi';
     -- Flat file zip'ten çıkarıldıktan sonra işlenmeyi beklerken alacağı statü bilgisi
     G_FLAT_FILE_UNZIPPED_STATUS APPS_BICC_EXT_FILES.STATUS%TYPE := 'Tamamlandi';
-    -- Flat file zip'ten çıkarıldıktan sonra işlenmeyi beklerken alacağı statü bilgisi (İçerisinde bulunan CSV için)
-    G_FLAT_FILE_PENDING_PROCESS_STATUS APPS_BICC_EXT_FILES.STATUS%TYPE := 'Islenmeyi Bekliyor';
     -- Flat file'ların yazılacağı işletim sistemi dizini
     G_FLAT_FILE_DOWNLOAD_DIR VARCHAR2(4000) := '/oradata/external';
     FUNCTION GET_LOOKUP_CONSTANT(P_LOOKUP_TYPE IN VARCHAR2, P_LOOKUP_CODE IN VARCHAR2) RETURN VARCHAR2;
