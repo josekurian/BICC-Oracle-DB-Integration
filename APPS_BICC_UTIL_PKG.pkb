@@ -105,15 +105,14 @@ CREATE OR REPLACE PACKAGE BODY APPS_BICC_UTIL_PKG IS
         COMMIT;
     END MANAGE_MANIFESTS;
 
-    PROCEDURE MANAGE_FLAT_FILE(P_DOCUMENT_ID IN VARCHAR2) IS
-        P_DOCUMENT_ID                     APPS_BICC_EXT_FILES.DOCUMENT_ID%TYPE := 2506337;
+    PROCEDURE MANAGE_FLAT_FILE(P_DOCUMENT_ID IN VARCHAR2, P_STATUS_CODE OUT VARCHAR2) IS
         L_EXT_FILE_ROW                    APPS_BICC_EXT_FILES%ROWTYPE;
-        L_STATUS_CODE                     VARCHAR2(4000);
         L_EXT_TABLE_COLUMN_SQL_UPPER_PART CLOB;
         L_EXT_TABLE_COLUMN_SQL_LOWER_PART CLOB;
-        L_EXT_TABLE_NAME                  VARCHAR2(400)                        := 'SONER_TEMP';
-        L_EXT_TABLE_DIR_NAME              VARCHAR2(400)                        := 'EXT_TABLE_DIR';
+        L_EXT_TABLE_NAME                  VARCHAR2(400) := G_EXT_TABLE_NAME;
+        L_EXT_TABLE_DIR_NAME              VARCHAR2(400) := G_EXT_TABLE_DIR_NAME;
         L_EXT_TABLE_CREATE_SQL            CLOB;
+        L_SHOULD_EXT_TBL_DROP             VARCHAR2(1)   := 'N';
         CURSOR CUR_COL_DEF(P_FILE_NAME IN VARCHAR2) IS
             SELECT
                 COL_NAME,
@@ -122,7 +121,7 @@ CREATE OR REPLACE PACKAGE BODY APPS_BICC_UTIL_PKG IS
                 COL_PRECISION,
                 decode(
                         COL_DATATYPE, 'VARCHAR', ('VARCHAR2(' || COL_SIZE || ')'),
-                        'NUMERIC', ('NUMBER(' || COL_SIZE || ',' || COL_PRECISION || ')'),
+                        'NUMERIC', 'NUMBER',
                         'TIMESTAMP', COL_DATATYPE,
                         'DATE', 'COL_DATATYPE',
                         (COL_DATATYPE || '(' || COL_SIZE || ',' || COL_PRECISION || ')')
@@ -148,6 +147,7 @@ CREATE OR REPLACE PACKAGE BODY APPS_BICC_UTIL_PKG IS
         WHERE
             DOCUMENT_ID = P_DOCUMENT_ID;
 
+        -- External table oluşturma DDL'i build ediliyor
         FOR REC_COL_DEF IN CUR_COL_DEF(L_EXT_FILE_ROW.FILE_NAME)
             LOOP
                 L_EXT_TABLE_COLUMN_SQL_UPPER_PART := L_EXT_TABLE_COLUMN_SQL_UPPER_PART || REC_COL_DEF.COL_NAME;
@@ -161,6 +161,19 @@ CREATE OR REPLACE PACKAGE BODY APPS_BICC_UTIL_PKG IS
         L_EXT_TABLE_COLUMN_SQL_UPPER_PART := rtrim(L_EXT_TABLE_COLUMN_SQL_UPPER_PART, ',');
         L_EXT_TABLE_COLUMN_SQL_LOWER_PART := rtrim(L_EXT_TABLE_COLUMN_SQL_LOWER_PART, ',');
 
+        -- Staging area görevi görecek olan external table oluşturuluyor (öncelikle varsa drop ediliyor)
+        SELECT
+            decode(count(*), 0, 'N', 'Y') AS SHOULD_DROP
+        INTO L_SHOULD_EXT_TBL_DROP
+        FROM
+            ALL_EXTERNAL_TABLES
+        WHERE
+            TABLE_NAME = L_EXT_TABLE_NAME;
+
+        IF L_SHOULD_EXT_TBL_DROP = 'Y' THEN
+            EXECUTE IMMEDIATE 'DROP TABLE ' || L_EXT_TABLE_NAME;
+        END IF;
+        DBMS_OUTPUT.PUT_LINE(L_EXT_TABLE_CREATE_SQL);
         L_EXT_TABLE_CREATE_SQL := 'CREATE TABLE ' || L_EXT_TABLE_NAME || '(' || chr(13) ||
                                   L_EXT_TABLE_COLUMN_SQL_UPPER_PART || chr(13) ||
                                   ')' || chr(13) ||
@@ -169,6 +182,9 @@ CREATE OR REPLACE PACKAGE BODY APPS_BICC_UTIL_PKG IS
                                     DEFAULT DIRECTORY "' || L_EXT_TABLE_DIR_NAME || '"
                                 ACCESS PARAMETERS (
                                     records delimited  by newline
+                                    NOLOGFILE
+                                    NOBADFILE
+                                    NODISCARDFILE
                                     CHARACTERSET AL32UTF8
                                     FIELD NAMES FIRST FILE
                                     fields  terminated by '',''
@@ -184,10 +200,8 @@ CREATE OR REPLACE PACKAGE BODY APPS_BICC_UTIL_PKG IS
                                 )
                                 REJECT LIMIT UNLIMITED';
 
-        DBMS_OUTPUT.PUT_LINE('DROP TABLE ' || L_EXT_TABLE_NAME);
-        DBMS_OUTPUT.PUT_LINE(L_EXT_TABLE_CREATE_SQL);
-        --DBMS_OUTPUT.PUT_LINE(L_EXT_TABLE_COLUMN_SQL_LOWER_PART);
+        EXECUTE IMMEDIATE L_EXT_TABLE_CREATE_SQL;
     EXCEPTION
-        WHEN NO_DATA_FOUND THEN NULL;
-    END;
+        WHEN OTHERS THEN P_STATUS_CODE := DBMS_UTILITY.FORMAT_ERROR_BACKTRACE || ' Hata: ' || sqlerrm;
+    END MANAGE_FLAT_FILE;
 END;
