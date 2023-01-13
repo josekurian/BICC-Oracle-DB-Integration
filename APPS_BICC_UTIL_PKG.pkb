@@ -31,6 +31,80 @@ CREATE OR REPLACE PACKAGE BODY APPS_BICC_UTIL_PKG IS
             END IF;
         END IF;
     END GET_LOOKUP_CONSTANT;
+
+    FUNCTION GET_EXTERNAL_TABLE_DDL(P_FILE_NAME IN VARCHAR2) RETURN CLOB IS
+        L_EXT_TABLE_COLUMN_SQL_UPPER_PART CLOB;
+        L_EXT_TABLE_COLUMN_SQL_LOWER_PART CLOB;
+        L_EXT_TABLE_NAME                  VARCHAR2(400) := G_EXT_TABLE_NAME;
+        L_EXT_TABLE_DIR_NAME              VARCHAR2(400) := G_EXT_TABLE_DIR_NAME;
+        L_EXT_TABLE_CREATE_SQL            CLOB;
+        CURSOR CUR_COL_DEF IS
+            SELECT
+                COL_NAME,
+                COL_DATATYPE,
+                COL_SIZE,
+                COL_PRECISION,
+                decode(
+                        COL_DATATYPE, 'VARCHAR', ('VARCHAR2(' || COL_SIZE || ')'),
+                        'NUMERIC', 'NUMBER',
+                        'TIMESTAMP', COL_DATATYPE,
+                        'DATE', 'COL_DATATYPE',
+                        (COL_DATATYPE || '(' || COL_SIZE || ',' || COL_PRECISION || ')')
+                    ) AS SC_DT_PART,
+                decode(
+                        COL_DATATYPE, 'TIMESTAMP',
+                        (COL_NAME || ' char(26)  date_format TIMESTAMP MASK "yyyy-mm-dd hh24:mi:ss.ff6"'),
+                        'DATE', (COL_NAME || ' char(26)  date_format TIMESTAMP MASK "yyyy-mm-dd hh24:mi:ss.ff6"'),
+                        COL_NAME
+                    ) AS SC_CSV_PART
+            FROM
+                APPS_BICC_TAB_COLUMNS
+            WHERE
+                P_FILE_NAME LIKE '%' || replace(lower(VO_NAME), '.', '_') || '%'
+            ORDER BY COL_DATATYPE
+        ;
+    BEGIN
+        -- External table oluşturma DDL'i build ediliyor
+        FOR REC_COL_DEF IN CUR_COL_DEF
+            LOOP
+                L_EXT_TABLE_COLUMN_SQL_UPPER_PART := L_EXT_TABLE_COLUMN_SQL_UPPER_PART || REC_COL_DEF.COL_NAME;
+                L_EXT_TABLE_COLUMN_SQL_UPPER_PART := L_EXT_TABLE_COLUMN_SQL_UPPER_PART || ' ';
+                L_EXT_TABLE_COLUMN_SQL_UPPER_PART := L_EXT_TABLE_COLUMN_SQL_UPPER_PART || REC_COL_DEF.SC_DT_PART;
+                L_EXT_TABLE_COLUMN_SQL_UPPER_PART := L_EXT_TABLE_COLUMN_SQL_UPPER_PART || ',';
+
+                L_EXT_TABLE_COLUMN_SQL_LOWER_PART := L_EXT_TABLE_COLUMN_SQL_LOWER_PART || REC_COL_DEF.SC_CSV_PART;
+                L_EXT_TABLE_COLUMN_SQL_LOWER_PART := L_EXT_TABLE_COLUMN_SQL_LOWER_PART || ',';
+            END LOOP;
+        L_EXT_TABLE_COLUMN_SQL_UPPER_PART := rtrim(L_EXT_TABLE_COLUMN_SQL_UPPER_PART, ',');
+        L_EXT_TABLE_COLUMN_SQL_LOWER_PART := rtrim(L_EXT_TABLE_COLUMN_SQL_LOWER_PART, ',');
+
+        L_EXT_TABLE_CREATE_SQL := 'CREATE TABLE ' || L_EXT_TABLE_NAME || '(' || chr(13) ||
+                                  L_EXT_TABLE_COLUMN_SQL_UPPER_PART || chr(13) ||
+                                  ')' || chr(13) ||
+                                  'ORGANIZATION EXTERNAL (
+                                    TYPE ORACLE_LOADER
+                                    DEFAULT DIRECTORY "' || L_EXT_TABLE_DIR_NAME || '"
+                                ACCESS PARAMETERS (
+                                    records delimited  by newline
+                                    NOLOGFILE
+                                    NOBADFILE
+                                    NODISCARDFILE
+                                    CHARACTERSET AL32UTF8
+                                    FIELD NAMES FIRST FILE
+                                    fields  terminated by '',''
+                                    optionally enclosed by ''"''
+                                    missing field values are null (' || chr(13) ||
+                                  L_EXT_TABLE_COLUMN_SQL_LOWER_PART || chr(13) ||
+                                  ')
+                              )
+                              LOCATION (' || chr(13) ||
+                                  '"' || L_EXT_TABLE_DIR_NAME || '": ''' || P_FILE_NAME || '''' ||
+                                  chr(13) ||
+                                  ')
+                                )
+                                REJECT LIMIT UNLIMITED';
+        RETURN L_EXT_TABLE_CREATE_SQL;
+    END GET_EXTERNAL_TABLE_DDL;
     -- Manifest dosyalarından flat file bilgilerini okuyacak
     PROCEDURE MANAGE_MANIFESTS(P_DOCUMENT_ID IN VARCHAR2, P_FORCE_IF_PROCESSED IN VARCHAR2) IS
         C_PROCEDURE_AUDIT_NAME      VARCHAR2(400) := '(APPS_BICC_UTIL_PKG.MANAGE_MANIFESTS)';
@@ -105,39 +179,15 @@ CREATE OR REPLACE PACKAGE BODY APPS_BICC_UTIL_PKG IS
         COMMIT;
     END MANAGE_MANIFESTS;
 
+    /*
+        Zip'ten çıkarılıp indirilmiş olan dosyalardan önce external table oluşturacak,
+        Ardından bu tablo desenine göre varsa ana tabloya merge yapacak, yoksa oluşturacak
+    */
     PROCEDURE MANAGE_FLAT_FILE(P_DOCUMENT_ID IN VARCHAR2, P_STATUS_CODE OUT VARCHAR2) IS
-        L_EXT_FILE_ROW                    APPS_BICC_EXT_FILES%ROWTYPE;
-        L_EXT_TABLE_COLUMN_SQL_UPPER_PART CLOB;
-        L_EXT_TABLE_COLUMN_SQL_LOWER_PART CLOB;
-        L_EXT_TABLE_NAME                  VARCHAR2(400) := G_EXT_TABLE_NAME;
-        L_EXT_TABLE_DIR_NAME              VARCHAR2(400) := G_EXT_TABLE_DIR_NAME;
-        L_EXT_TABLE_CREATE_SQL            CLOB;
-        L_SHOULD_EXT_TBL_DROP             VARCHAR2(1)   := 'N';
-        CURSOR CUR_COL_DEF(P_FILE_NAME IN VARCHAR2) IS
-            SELECT
-                COL_NAME,
-                COL_DATATYPE,
-                COL_SIZE,
-                COL_PRECISION,
-                decode(
-                        COL_DATATYPE, 'VARCHAR', ('VARCHAR2(' || COL_SIZE || ')'),
-                        'NUMERIC', 'NUMBER',
-                        'TIMESTAMP', COL_DATATYPE,
-                        'DATE', 'COL_DATATYPE',
-                        (COL_DATATYPE || '(' || COL_SIZE || ',' || COL_PRECISION || ')')
-                    ) AS SC_DT_PART,
-                decode(
-                        COL_DATATYPE, 'TIMESTAMP',
-                        (COL_NAME || ' char(26)  date_format TIMESTAMP MASK "yyyy-mm-dd hh24:mi:ss.ff6"'),
-                        'DATE', (COL_NAME || ' char(26)  date_format TIMESTAMP MASK "yyyy-mm-dd hh24:mi:ss.ff6"'),
-                        COL_NAME
-                    ) AS SC_CSV_PART
-            FROM
-                APPS_BICC_TAB_COLUMNS
-            WHERE
-                P_FILE_NAME LIKE '%' || replace(lower(VO_NAME), '.', '_') || '%'
-            ORDER BY COL_DATATYPE
-        ;
+        L_EXT_FILE_ROW         APPS_BICC_EXT_FILES%ROWTYPE;
+        L_EXT_TABLE_NAME       VARCHAR2(400) := G_EXT_TABLE_NAME;
+        L_EXT_TABLE_CREATE_SQL CLOB;
+        L_SHOULD_EXT_TBL_DROP  VARCHAR2(1)   := 'N';
     BEGIN
         SELECT
             *
@@ -147,20 +197,8 @@ CREATE OR REPLACE PACKAGE BODY APPS_BICC_UTIL_PKG IS
         WHERE
             DOCUMENT_ID = P_DOCUMENT_ID;
 
-        -- External table oluşturma DDL'i build ediliyor
-        FOR REC_COL_DEF IN CUR_COL_DEF(L_EXT_FILE_ROW.FILE_NAME)
-            LOOP
-                L_EXT_TABLE_COLUMN_SQL_UPPER_PART := L_EXT_TABLE_COLUMN_SQL_UPPER_PART || REC_COL_DEF.COL_NAME;
-                L_EXT_TABLE_COLUMN_SQL_UPPER_PART := L_EXT_TABLE_COLUMN_SQL_UPPER_PART || ' ';
-                L_EXT_TABLE_COLUMN_SQL_UPPER_PART := L_EXT_TABLE_COLUMN_SQL_UPPER_PART || REC_COL_DEF.SC_DT_PART;
-                L_EXT_TABLE_COLUMN_SQL_UPPER_PART := L_EXT_TABLE_COLUMN_SQL_UPPER_PART || ',';
 
-                L_EXT_TABLE_COLUMN_SQL_LOWER_PART := L_EXT_TABLE_COLUMN_SQL_LOWER_PART || REC_COL_DEF.SC_CSV_PART;
-                L_EXT_TABLE_COLUMN_SQL_LOWER_PART := L_EXT_TABLE_COLUMN_SQL_LOWER_PART || ',';
-            END LOOP;
-        L_EXT_TABLE_COLUMN_SQL_UPPER_PART := rtrim(L_EXT_TABLE_COLUMN_SQL_UPPER_PART, ',');
-        L_EXT_TABLE_COLUMN_SQL_LOWER_PART := rtrim(L_EXT_TABLE_COLUMN_SQL_LOWER_PART, ',');
-
+        L_EXT_TABLE_CREATE_SQL := GET_EXTERNAL_TABLE_DDL(P_FILE_NAME => L_EXT_FILE_ROW.FILE_NAME);
         -- Staging area görevi görecek olan external table oluşturuluyor (öncelikle varsa drop ediliyor)
         SELECT
             decode(count(*), 0, 'N', 'Y') AS SHOULD_DROP
@@ -173,34 +211,10 @@ CREATE OR REPLACE PACKAGE BODY APPS_BICC_UTIL_PKG IS
         IF L_SHOULD_EXT_TBL_DROP = 'Y' THEN
             EXECUTE IMMEDIATE 'DROP TABLE ' || L_EXT_TABLE_NAME;
         END IF;
-        DBMS_OUTPUT.PUT_LINE(L_EXT_TABLE_CREATE_SQL);
-        L_EXT_TABLE_CREATE_SQL := 'CREATE TABLE ' || L_EXT_TABLE_NAME || '(' || chr(13) ||
-                                  L_EXT_TABLE_COLUMN_SQL_UPPER_PART || chr(13) ||
-                                  ')' || chr(13) ||
-                                  'ORGANIZATION EXTERNAL (
-                                    TYPE ORACLE_LOADER
-                                    DEFAULT DIRECTORY "' || L_EXT_TABLE_DIR_NAME || '"
-                                ACCESS PARAMETERS (
-                                    records delimited  by newline
-                                    NOLOGFILE
-                                    NOBADFILE
-                                    NODISCARDFILE
-                                    CHARACTERSET AL32UTF8
-                                    FIELD NAMES FIRST FILE
-                                    fields  terminated by '',''
-                                    optionally enclosed by ''"''
-                                    missing field values are null (' || chr(13) ||
-                                  L_EXT_TABLE_COLUMN_SQL_LOWER_PART || chr(13) ||
-                                  ')
-                              )
-                              LOCATION (' || chr(13) ||
-                                  '"' || L_EXT_TABLE_DIR_NAME || '": ''' || L_EXT_FILE_ROW.FILE_NAME || '''' ||
-                                  chr(13) ||
-                                  ')
-                                )
-                                REJECT LIMIT UNLIMITED';
 
         EXECUTE IMMEDIATE L_EXT_TABLE_CREATE_SQL;
+
+        P_STATUS_CODE := 'S';
     EXCEPTION
         WHEN OTHERS THEN P_STATUS_CODE := DBMS_UTILITY.FORMAT_ERROR_BACKTRACE || ' Hata: ' || sqlerrm;
     END MANAGE_FLAT_FILE;
