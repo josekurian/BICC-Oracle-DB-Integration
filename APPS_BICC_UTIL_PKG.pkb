@@ -32,6 +32,74 @@ CREATE OR REPLACE PACKAGE BODY APPS_BICC_UTIL_PKG IS
         END IF;
     END GET_LOOKUP_CONSTANT;
 
+    FUNCTION BEAUTIFY_COL_NAME(P_COL_NAME IN VARCHAR2, P_VO_NAME IN VARCHAR2) RETURN VARCHAR2 IS
+        L_BEAUTIFIED_COL_NAME VARCHAR2(4000);
+        CURSOR CUR_RDN_PREF IS
+            SELECT
+                regexp_substr(REDNDNT_PREFIXES, '[^,]+', 1, LEVEL) AS REDNDNT_PREFIX
+            FROM
+                APPS_BICC_TAB_DEF
+            WHERE
+                VO_NAME = P_VO_NAME
+            CONNECT BY
+                regexp_substr(REDNDNT_PREFIXES, '[^,]+', 1, LEVEL) IS NOT NULL
+        ;
+    BEGIN
+        L_BEAUTIFIED_COL_NAME := P_COL_NAME;
+        -- Kolon isimlerini uzatan gereksiz ön ekler siliniyor
+        FOR REC_RDN_PREF IN CUR_RDN_PREF
+            LOOP
+                L_BEAUTIFIED_COL_NAME := replace(L_BEAUTIFIED_COL_NAME, REC_RDN_PREF.REDNDNT_PREFIX, '');
+            END LOOP;
+        -- Pascal case'den underscore case'e dönüştürülüyor, kolon ismi büyütülüyor
+        L_BEAUTIFIED_COL_NAME := upper(regexp_replace(L_BEAUTIFIED_COL_NAME, '([A-Z])', '_\1', 2));
+        RETURN L_BEAUTIFIED_COL_NAME;
+    END BEAUTIFY_COL_NAME;
+
+    FUNCTION GET_MAIN_TABLE_DDL(P_FILE_NAME IN CLOB) RETURN CLOB IS
+        L_TAB_DEF    APPS_BICC_TAB_DEF%ROWTYPE;
+        L_CREATE_DDL CLOB;
+        CURSOR CUR_COL_DEF IS
+            SELECT
+                COL_NAME,
+                COL_DATATYPE,
+                COL_SIZE,
+                COL_PRECISION,
+                decode(
+                        COL_DATATYPE, 'VARCHAR', ('VARCHAR2(' || COL_SIZE || ')'),
+                        'NUMERIC', ('NUMBER' || '(*,' || COL_PRECISION || ')'),
+                        'TIMESTAMP', COL_DATATYPE,
+                        'DATE', 'COL_DATATYPE',
+                        (COL_DATATYPE || '(' || COL_SIZE || ',' || COL_PRECISION || ')')
+                    ) AS DDL_DATATYPE
+            FROM
+                APPS_BICC_TAB_COLUMNS
+            WHERE
+                P_FILE_NAME LIKE '%' || replace(lower(VO_NAME), '.', '_') || '%'
+            ORDER BY COL_DATATYPE
+        ;
+    BEGIN
+        SELECT
+            *
+        INTO
+            L_TAB_DEF
+        FROM
+            APPS_BICC_TAB_DEF
+        WHERE
+            P_FILE_NAME LIKE '%' || replace(lower(VO_NAME), '.', '_') || '%';
+        L_CREATE_DDL := 'CREATE TABLE ' || L_TAB_DEF.TAB_NAME || ' (';
+        FOR REC_COL_DEF IN CUR_COL_DEF
+            LOOP
+
+                L_CREATE_DDL := L_CREATE_DDL || BEAUTIFY_COL_NAME(REC_COL_DEF.COL_NAME, L_TAB_DEF.VO_NAME) || ' ' ||
+                                REC_COL_DEF.DDL_DATATYPE || ',';
+            END LOOP;
+        L_CREATE_DDL := rtrim(L_CREATE_DDL, ',');
+        L_CREATE_DDL := L_CREATE_DDL || ')';
+        DBMS_OUTPUT.PUT_LINE(L_CREATE_DDL);
+        RETURN L_CREATE_DDL;
+    END GET_MAIN_TABLE_DDL;
+
     FUNCTION GET_EXTERNAL_TABLE_DDL(P_FILE_NAME IN VARCHAR2) RETURN CLOB IS
         L_EXT_TABLE_COLUMN_SQL_UPPER_PART CLOB;
         L_EXT_TABLE_COLUMN_SQL_LOWER_PART CLOB;
@@ -46,7 +114,7 @@ CREATE OR REPLACE PACKAGE BODY APPS_BICC_UTIL_PKG IS
                 COL_PRECISION,
                 decode(
                         COL_DATATYPE, 'VARCHAR', ('VARCHAR2(' || COL_SIZE || ')'),
-                        'NUMERIC', 'NUMBER',
+                        'NUMERIC', ('NUMBER' || '(*,' || COL_PRECISION || ')'),
                         'TIMESTAMP', COL_DATATYPE,
                         'DATE', 'COL_DATATYPE',
                         (COL_DATATYPE || '(' || COL_SIZE || ',' || COL_PRECISION || ')')
@@ -185,6 +253,8 @@ CREATE OR REPLACE PACKAGE BODY APPS_BICC_UTIL_PKG IS
     */
     PROCEDURE MANAGE_FLAT_FILE(P_DOCUMENT_ID IN VARCHAR2, P_STATUS_CODE OUT VARCHAR2) IS
         L_EXT_FILE_ROW         APPS_BICC_EXT_FILES%ROWTYPE;
+        L_TAB_DEF_ROW          APPS_BICC_TAB_DEF%ROWTYPE;
+        L_DOES_TAB_EXIST       VARCHAR2(1)   := 'N';
         L_EXT_TABLE_NAME       VARCHAR2(400) := G_EXT_TABLE_NAME;
         L_EXT_TABLE_CREATE_SQL CLOB;
         L_SHOULD_EXT_TBL_DROP  VARCHAR2(1)   := 'N';
@@ -196,6 +266,14 @@ CREATE OR REPLACE PACKAGE BODY APPS_BICC_UTIL_PKG IS
             APPS_BICC_EXT_FILES
         WHERE
             DOCUMENT_ID = P_DOCUMENT_ID;
+
+        SELECT
+            *
+        INTO L_TAB_DEF_ROW
+        FROM
+            APPS_BICC_TAB_DEF
+        WHERE
+            L_EXT_FILE_ROW.FILE_NAME LIKE '%' || replace(lower(VO_NAME), '.', '_') || '%';
 
 
         L_EXT_TABLE_CREATE_SQL := GET_EXTERNAL_TABLE_DDL(P_FILE_NAME => L_EXT_FILE_ROW.FILE_NAME);
@@ -213,6 +291,17 @@ CREATE OR REPLACE PACKAGE BODY APPS_BICC_UTIL_PKG IS
         END IF;
 
         EXECUTE IMMEDIATE L_EXT_TABLE_CREATE_SQL;
+
+        -- Ana tablonun varlığı kontrol ediliyor, yoksa oluşturma DDL'i çalıştırılıyor
+        SELECT
+            decode(count(*), 0, 'N', 'Y') AS DOES_TAB_EXIST
+        INTO L_DOES_TAB_EXIST
+        FROM
+            USER_TABLES
+        WHERE
+            TABLE_NAME = L_TAB_DEF_ROW.TAB_NAME;
+
+        -- Tabloya merge işlemini yapan DDL çalıştırılıyor
 
         P_STATUS_CODE := 'S';
     EXCEPTION
