@@ -46,7 +46,7 @@ CREATE OR REPLACE PACKAGE BODY APPS_BICC_UTIL_PKG IS
                 COL_PRECISION,
                 decode(
                         COL_DATATYPE, 'VARCHAR', ('VARCHAR2(' || COL_SIZE || ')'),
-                        'NUMERIC', 'NUMBER',
+                        'NUMERIC', ('NUMBER' || '(*,' || COL_PRECISION || ')'),
                         'TIMESTAMP', COL_DATATYPE,
                         'DATE', 'COL_DATATYPE',
                         (COL_DATATYPE || '(' || COL_SIZE || ',' || COL_PRECISION || ')')
