@@ -31,7 +31,7 @@ CREATE OR REPLACE PACKAGE BODY APPS_BICC_UTIL_PKG IS
             END IF;
         END IF;
     END GET_LOOKUP_CONSTANT;
-
+    -- Ana tablodaki kolon isimlerini underscore case'e dönüştürmek için kullanılacak
     FUNCTION BEAUTIFY_COL_NAME(P_COL_NAME IN VARCHAR2, P_VO_NAME IN VARCHAR2) RETURN VARCHAR2 IS
         L_BEAUTIFIED_COL_NAME VARCHAR2(4000);
         CURSOR CUR_RDN_PREF IS
@@ -55,7 +55,7 @@ CREATE OR REPLACE PACKAGE BODY APPS_BICC_UTIL_PKG IS
         L_BEAUTIFIED_COL_NAME := upper(regexp_replace(L_BEAUTIFIED_COL_NAME, '([A-Z])', '_\1', 2));
         RETURN L_BEAUTIFIED_COL_NAME;
     END BEAUTIFY_COL_NAME;
-
+    -- Ana tablonun CREATE TABLE script'ini verir
     FUNCTION GET_MAIN_TABLE_CREATE_STMT(P_FILE_NAME IN CLOB) RETURN CLOB IS
         L_TAB_DEF    APPS_BICC_TAB_DEF%ROWTYPE;
         L_CREATE_DDL CLOB;
@@ -99,7 +99,7 @@ CREATE OR REPLACE PACKAGE BODY APPS_BICC_UTIL_PKG IS
         DBMS_OUTPUT.PUT_LINE(L_CREATE_DDL);
         RETURN L_CREATE_DDL;
     END GET_MAIN_TABLE_CREATE_STMT;
-
+    -- Ana tabloda varolan ve yeniden gelmiş kayıtlar için silme işlemi yapan DELETE statement'ını verir
     FUNCTION GET_DELETE_EXISTING_STMT(P_FILE_NAME IN CLOB) RETURN CLOB
         IS
         L_IX           NUMBER        := 0;
@@ -137,6 +137,47 @@ CREATE OR REPLACE PACKAGE BODY APPS_BICC_UTIL_PKG IS
         RETURN L_DELETE_STMT;
     END GET_DELETE_EXISTING_STMT;
 
+    -- External table'daki tüm veriyi ana tabloya insert eden cümleyi verir
+    FUNCTION GET_INSERT_ALL_STMT(P_FILE_NAME IN CLOB) RETURN CLOB IS
+        L_IX           NUMBER        := 0;
+        L_INSERT_STMT  CLOB;
+        L_SELECT_STMT  CLOB;
+        L_EXT_TAB_NAME VARCHAR2(255) := G_EXT_TABLE_NAME;
+        CURSOR CUR_COLS IS
+            SELECT
+                COL.COL_NAME AS EXT_COL_NAME,
+                TAB.TAB_NAME,
+                COL.VO_NAME
+            FROM
+                APPS_BICC_TAB_COLUMNS COL
+                LEFT OUTER JOIN APPS_BICC_TAB_DEF TAB ON COL.VO_NAME = TAB.VO_NAME
+            WHERE
+                    lower(P_FILE_NAME) LIKE '%' || replace(lower(COL.VO_NAME), '.', '_') || '%'
+        ;
+    BEGIN
+        FOR REC_COLS IN CUR_COLS
+            LOOP
+                IF L_IX = 0 THEN
+                    L_INSERT_STMT := 'INSERT INTO ' || REC_COLS.TAB_NAME || ' (';
+                    L_SELECT_STMT := 'SELECT ';
+                END IF;
+                L_INSERT_STMT :=
+                            L_INSERT_STMT || ' ' || BEAUTIFY_COL_NAME(REC_COLS.EXT_COL_NAME, REC_COLS.VO_NAME) || ',';
+                L_SELECT_STMT := L_SELECT_STMT || ' ' || REC_COLS.EXT_COL_NAME || ',';
+                L_IX := L_IX + 1;
+            END LOOP;
+
+        L_SELECT_STMT := rtrim(L_SELECT_STMT, ',');
+        L_INSERT_STMT := rtrim(L_INSERT_STMT, ',');
+
+        IF L_INSERT_STMT IS NOT NULL AND L_SELECT_STMT IS NOT NULL THEN
+            L_INSERT_STMT := L_INSERT_STMT || ')';
+            L_SELECT_STMT := L_SELECT_STMT || ' FROM ' || L_EXT_TAB_NAME;
+        END IF;
+        RETURN L_INSERT_STMT || ' ' || L_SELECT_STMT;
+    END GET_INSERT_ALL_STMT;
+
+    -- External table oluşturma statement'ını verir
     FUNCTION GET_EXTERNAL_TABLE_CREATE_STMT(P_FILE_NAME IN VARCHAR2) RETURN CLOB IS
         L_EXT_TABLE_COLUMN_SQL_UPPER_PART CLOB;
         L_EXT_TABLE_COLUMN_SQL_LOWER_PART CLOB;
@@ -207,6 +248,7 @@ CREATE OR REPLACE PACKAGE BODY APPS_BICC_UTIL_PKG IS
                                 REJECT LIMIT UNLIMITED';
         RETURN L_EXT_TABLE_CREATE_SQL;
     END GET_EXTERNAL_TABLE_CREATE_STMT;
+
     -- Manifest dosyalarından flat file bilgilerini okuyacak
     PROCEDURE MANAGE_MANIFESTS(P_DOCUMENT_ID IN VARCHAR2, P_FORCE_IF_PROCESSED IN VARCHAR2) IS
         C_PROCEDURE_AUDIT_NAME      VARCHAR2(400) := '(APPS_BICC_UTIL_PKG.MANAGE_MANIFESTS)';
@@ -292,6 +334,7 @@ CREATE OR REPLACE PACKAGE BODY APPS_BICC_UTIL_PKG IS
         L_EXT_TABLE_NAME       VARCHAR2(400) := G_EXT_TABLE_NAME;
         L_EXT_TABLE_CREATE_SQL CLOB;
         L_SHOULD_EXT_TBL_DROP  VARCHAR2(1)   := 'N';
+        L_DELETE_EXISTING_STMT CLOB;
     BEGIN
         SELECT
             *
@@ -339,7 +382,13 @@ CREATE OR REPLACE PACKAGE BODY APPS_BICC_UTIL_PKG IS
             EXECUTE IMMEDIATE GET_EXTERNAL_TABLE_CREATE_STMT(P_FILE_NAME => L_EXT_FILE_ROW.FILE_NAME);
         END IF;
 
-        -- Tabloya merge işlemini yapan DDL çalıştırılıyor
+        -- Hem ana tabloda varolan hem de external tabloda yeni gelmiş kayıtlar siliniyor (Güncellenmiş)
+        L_DELETE_EXISTING_STMT := GET_DELETE_EXISTING_STMT(P_FILE_NAME => L_EXT_FILE_ROW.FILE_NAME);
+        IF L_DELETE_EXISTING_STMT IS NOT NULL THEN
+            EXECUTE IMMEDIATE L_DELETE_EXISTING_STMT;
+        END IF;
+
+        -- Ana tabloya tüm kayıtlar insert ediliyor
 
         P_STATUS_CODE := 'S';
     EXCEPTION
