@@ -56,7 +56,7 @@ CREATE OR REPLACE PACKAGE BODY APPS_BICC_UTIL_PKG IS
         RETURN L_BEAUTIFIED_COL_NAME;
     END BEAUTIFY_COL_NAME;
 
-    FUNCTION GET_MAIN_TABLE_DDL(P_FILE_NAME IN CLOB) RETURN CLOB IS
+    FUNCTION GET_MAIN_TABLE_CREATE_STMT(P_FILE_NAME IN CLOB) RETURN CLOB IS
         L_TAB_DEF    APPS_BICC_TAB_DEF%ROWTYPE;
         L_CREATE_DDL CLOB;
         CURSOR CUR_COL_DEF IS
@@ -75,7 +75,7 @@ CREATE OR REPLACE PACKAGE BODY APPS_BICC_UTIL_PKG IS
             FROM
                 APPS_BICC_TAB_COLUMNS
             WHERE
-                P_FILE_NAME LIKE '%' || replace(lower(VO_NAME), '.', '_') || '%'
+                    lower(P_FILE_NAME) LIKE '%' || replace(lower(VO_NAME), '.', '_') || '%'
             ORDER BY COL_DATATYPE
         ;
     BEGIN
@@ -86,7 +86,7 @@ CREATE OR REPLACE PACKAGE BODY APPS_BICC_UTIL_PKG IS
         FROM
             APPS_BICC_TAB_DEF
         WHERE
-            P_FILE_NAME LIKE '%' || replace(lower(VO_NAME), '.', '_') || '%';
+                lower(P_FILE_NAME) LIKE '%' || replace(lower(VO_NAME), '.', '_') || '%';
         L_CREATE_DDL := 'CREATE TABLE ' || L_TAB_DEF.TAB_NAME || ' (';
         FOR REC_COL_DEF IN CUR_COL_DEF
             LOOP
@@ -98,9 +98,46 @@ CREATE OR REPLACE PACKAGE BODY APPS_BICC_UTIL_PKG IS
         L_CREATE_DDL := L_CREATE_DDL || ')';
         DBMS_OUTPUT.PUT_LINE(L_CREATE_DDL);
         RETURN L_CREATE_DDL;
-    END GET_MAIN_TABLE_DDL;
+    END GET_MAIN_TABLE_CREATE_STMT;
 
-    FUNCTION GET_EXTERNAL_TABLE_DDL(P_FILE_NAME IN VARCHAR2) RETURN CLOB IS
+    FUNCTION GET_DELETE_EXISTING_STMT(P_FILE_NAME IN CLOB) RETURN CLOB
+        IS
+        L_IX           NUMBER        := 0;
+        L_DELETE_STMT  CLOB;
+        L_EXT_TAB_NAME VARCHAR2(255) := G_EXT_TABLE_NAME;
+        CURSOR CUR_KEYS IS
+            SELECT
+                COL.COL_NAME AS EXT_COL_NAME,
+                TAB.TAB_NAME,
+                COL.KEY_POSITION,
+                COL.VO_NAME
+            FROM
+                APPS_BICC_TAB_COLUMNS COL
+                LEFT OUTER JOIN APPS_BICC_TAB_DEF TAB ON COL.VO_NAME = TAB.VO_NAME
+            WHERE
+                  COL.KEY_TYPE = 'PK'
+              AND lower(P_FILE_NAME) LIKE '%' || replace(lower(COL.VO_NAME), '.', '_') || '%'
+            ORDER BY COL.KEY_POSITION;
+    BEGIN
+        FOR REC_KEYS IN CUR_KEYS
+            LOOP
+                IF L_IX = 0 THEN
+                    L_DELETE_STMT := 'DELETE FROM ' || REC_KEYS.TAB_NAME || ' MAIN WHERE EXISTS (';
+                    L_DELETE_STMT := L_DELETE_STMT || ' SELECT 1 FROM ' || L_EXT_TAB_NAME || ' EXT_TAB WHERE 1=1';
+                END IF;
+                L_DELETE_STMT := L_DELETE_STMT || ' AND MAIN.' || BEAUTIFY_COL_NAME(P_COL_NAME => REC_KEYS.EXT_COL_NAME,
+                                                                                    P_VO_NAME => REC_KEYS.VO_NAME) ||
+                                 ' = EXT_TAB.' ||
+                                 REC_KEYS.EXT_COL_NAME;
+                L_IX := L_IX + 1;
+            END LOOP;
+        IF L_DELETE_STMT IS NOT NULL THEN
+            L_DELETE_STMT := L_DELETE_STMT || ')';
+        END IF;
+        RETURN L_DELETE_STMT;
+    END GET_DELETE_EXISTING_STMT;
+
+    FUNCTION GET_EXTERNAL_TABLE_CREATE_STMT(P_FILE_NAME IN VARCHAR2) RETURN CLOB IS
         L_EXT_TABLE_COLUMN_SQL_UPPER_PART CLOB;
         L_EXT_TABLE_COLUMN_SQL_LOWER_PART CLOB;
         L_EXT_TABLE_NAME                  VARCHAR2(400) := G_EXT_TABLE_NAME;
@@ -128,20 +165,17 @@ CREATE OR REPLACE PACKAGE BODY APPS_BICC_UTIL_PKG IS
             FROM
                 APPS_BICC_TAB_COLUMNS
             WHERE
-                P_FILE_NAME LIKE '%' || replace(lower(VO_NAME), '.', '_') || '%'
+                    lower(P_FILE_NAME) LIKE '%' || replace(lower(VO_NAME), '.', '_') || '%'
             ORDER BY COL_DATATYPE
         ;
     BEGIN
         -- External table oluşturma DDL'i build ediliyor
         FOR REC_COL_DEF IN CUR_COL_DEF
             LOOP
-                L_EXT_TABLE_COLUMN_SQL_UPPER_PART := L_EXT_TABLE_COLUMN_SQL_UPPER_PART || REC_COL_DEF.COL_NAME;
-                L_EXT_TABLE_COLUMN_SQL_UPPER_PART := L_EXT_TABLE_COLUMN_SQL_UPPER_PART || ' ';
-                L_EXT_TABLE_COLUMN_SQL_UPPER_PART := L_EXT_TABLE_COLUMN_SQL_UPPER_PART || REC_COL_DEF.SC_DT_PART;
-                L_EXT_TABLE_COLUMN_SQL_UPPER_PART := L_EXT_TABLE_COLUMN_SQL_UPPER_PART || ',';
-
-                L_EXT_TABLE_COLUMN_SQL_LOWER_PART := L_EXT_TABLE_COLUMN_SQL_LOWER_PART || REC_COL_DEF.SC_CSV_PART;
-                L_EXT_TABLE_COLUMN_SQL_LOWER_PART := L_EXT_TABLE_COLUMN_SQL_LOWER_PART || ',';
+                L_EXT_TABLE_COLUMN_SQL_UPPER_PART := L_EXT_TABLE_COLUMN_SQL_UPPER_PART || REC_COL_DEF.COL_NAME || ' ' ||
+                                                     REC_COL_DEF.SC_DT_PART || ',';
+                L_EXT_TABLE_COLUMN_SQL_LOWER_PART :=
+                            L_EXT_TABLE_COLUMN_SQL_LOWER_PART || REC_COL_DEF.SC_CSV_PART || ',';
             END LOOP;
         L_EXT_TABLE_COLUMN_SQL_UPPER_PART := rtrim(L_EXT_TABLE_COLUMN_SQL_UPPER_PART, ',');
         L_EXT_TABLE_COLUMN_SQL_LOWER_PART := rtrim(L_EXT_TABLE_COLUMN_SQL_LOWER_PART, ',');
@@ -172,7 +206,7 @@ CREATE OR REPLACE PACKAGE BODY APPS_BICC_UTIL_PKG IS
                                 )
                                 REJECT LIMIT UNLIMITED';
         RETURN L_EXT_TABLE_CREATE_SQL;
-    END GET_EXTERNAL_TABLE_DDL;
+    END GET_EXTERNAL_TABLE_CREATE_STMT;
     -- Manifest dosyalarından flat file bilgilerini okuyacak
     PROCEDURE MANAGE_MANIFESTS(P_DOCUMENT_ID IN VARCHAR2, P_FORCE_IF_PROCESSED IN VARCHAR2) IS
         C_PROCEDURE_AUDIT_NAME      VARCHAR2(400) := '(APPS_BICC_UTIL_PKG.MANAGE_MANIFESTS)';
@@ -273,10 +307,10 @@ CREATE OR REPLACE PACKAGE BODY APPS_BICC_UTIL_PKG IS
         FROM
             APPS_BICC_TAB_DEF
         WHERE
-            L_EXT_FILE_ROW.FILE_NAME LIKE '%' || replace(lower(VO_NAME), '.', '_') || '%';
+                lower(L_EXT_FILE_ROW.FILE_NAME) LIKE '%' || replace(lower(VO_NAME), '.', '_') || '%';
 
 
-        L_EXT_TABLE_CREATE_SQL := GET_EXTERNAL_TABLE_DDL(P_FILE_NAME => L_EXT_FILE_ROW.FILE_NAME);
+        L_EXT_TABLE_CREATE_SQL := GET_EXTERNAL_TABLE_CREATE_STMT(P_FILE_NAME => L_EXT_FILE_ROW.FILE_NAME);
         -- Staging area görevi görecek olan external table oluşturuluyor (öncelikle varsa drop ediliyor)
         SELECT
             decode(count(*), 0, 'N', 'Y') AS SHOULD_DROP
@@ -294,12 +328,16 @@ CREATE OR REPLACE PACKAGE BODY APPS_BICC_UTIL_PKG IS
 
         -- Ana tablonun varlığı kontrol ediliyor, yoksa oluşturma DDL'i çalıştırılıyor
         SELECT
-            decode(count(*), 0, 'N', 'Y') AS DOES_TAB_EXIST
+            decode(count(*), 0, 'Y', 'N') AS DOES_TAB_EXIST
         INTO L_DOES_TAB_EXIST
         FROM
             USER_TABLES
         WHERE
             TABLE_NAME = L_TAB_DEF_ROW.TAB_NAME;
+
+        IF L_DOES_TAB_EXIST = 'N' THEN
+            EXECUTE IMMEDIATE GET_EXTERNAL_TABLE_CREATE_STMT(P_FILE_NAME => L_EXT_FILE_ROW.FILE_NAME);
+        END IF;
 
         -- Tabloya merge işlemini yapan DDL çalıştırılıyor
 
