@@ -22,6 +22,8 @@ CREATE OR REPLACE PACKAGE APPS_BICC_UTIL_PKG IS
     G_FLAT_FILE_DOWNLOADED_STATUS APPS_BICC_EXT_FILES.STATUS%TYPE := 'Indirildi';
     -- Flat file zip'ten çıkarıldıktan sonra işlenmeyi beklerken alacağı statü bilgisi
     G_FLAT_FILE_UNZIPPED_STATUS APPS_BICC_EXT_FILES.STATUS%TYPE := 'Tamamlandi';
+    -- Flat file okunup ana tabloya yazıldıktan sonra alacağı statü
+    G_FLAT_FILE_COMPLETED_STATUS APPS_BICC_EXT_FILES.STATUS%TYPE := 'Tamamlandi';
     -- Flat file'ların yazılacağı işletim sistemi dizini
     G_FLAT_FILE_DOWNLOAD_DIR VARCHAR2(4000) := '/oradata/external';
     G_EXT_TABLE_DIR_NAME VARCHAR2(400) := 'EXT_TABLE_DIR';

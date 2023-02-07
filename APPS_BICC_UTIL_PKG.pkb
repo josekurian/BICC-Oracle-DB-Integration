@@ -31,6 +31,7 @@ CREATE OR REPLACE PACKAGE BODY APPS_BICC_UTIL_PKG IS
             END IF;
         END IF;
     END GET_LOOKUP_CONSTANT;
+
     -- Ana tablodaki kolon isimlerini underscore case'e dönüştürmek için kullanılacak
     FUNCTION BEAUTIFY_COL_NAME(P_COL_NAME IN VARCHAR2, P_VO_NAME IN VARCHAR2) RETURN VARCHAR2 IS
         L_BEAUTIFIED_COL_NAME VARCHAR2(4000);
@@ -55,6 +56,7 @@ CREATE OR REPLACE PACKAGE BODY APPS_BICC_UTIL_PKG IS
         L_BEAUTIFIED_COL_NAME := upper(regexp_replace(L_BEAUTIFIED_COL_NAME, '([A-Z])', '_\1', 2));
         RETURN L_BEAUTIFIED_COL_NAME;
     END BEAUTIFY_COL_NAME;
+
     -- Ana tablonun CREATE TABLE script'ini verir
     FUNCTION GET_MAIN_TABLE_CREATE_STMT(P_FILE_NAME IN CLOB) RETURN CLOB IS
         L_TAB_DEF    APPS_BICC_TAB_DEF%ROWTYPE;
@@ -96,9 +98,9 @@ CREATE OR REPLACE PACKAGE BODY APPS_BICC_UTIL_PKG IS
             END LOOP;
         L_CREATE_DDL := rtrim(L_CREATE_DDL, ',');
         L_CREATE_DDL := L_CREATE_DDL || ')';
-        DBMS_OUTPUT.PUT_LINE(L_CREATE_DDL);
         RETURN L_CREATE_DDL;
     END GET_MAIN_TABLE_CREATE_STMT;
+
     -- Ana tabloda varolan ve yeniden gelmiş kayıtlar için silme işlemi yapan DELETE statement'ını verir
     FUNCTION GET_DELETE_EXISTING_STMT(P_FILE_NAME IN CLOB) RETURN CLOB
         IS
@@ -328,13 +330,17 @@ CREATE OR REPLACE PACKAGE BODY APPS_BICC_UTIL_PKG IS
         Ardından bu tablo desenine göre varsa ana tabloya merge yapacak, yoksa oluşturacak
     */
     PROCEDURE MANAGE_FLAT_FILE(P_DOCUMENT_ID IN VARCHAR2, P_STATUS_CODE OUT VARCHAR2) IS
-        L_EXT_FILE_ROW         APPS_BICC_EXT_FILES%ROWTYPE;
-        L_TAB_DEF_ROW          APPS_BICC_TAB_DEF%ROWTYPE;
-        L_DOES_TAB_EXIST       VARCHAR2(1)   := 'N';
-        L_EXT_TABLE_NAME       VARCHAR2(400) := G_EXT_TABLE_NAME;
-        L_EXT_TABLE_CREATE_SQL CLOB;
-        L_SHOULD_EXT_TBL_DROP  VARCHAR2(1)   := 'N';
-        L_DELETE_EXISTING_STMT CLOB;
+        C_PROCEDURE_AUDIT_NAME   VARCHAR2(400) := '(APPS_BICC_UTIL_PKG.MANAGE_FLAT_FILE)';
+        L_PROCEDURE_AUDIT_NAME   VARCHAR2(400) := C_PROCEDURE_AUDIT_NAME;
+        L_EXT_FILE_ROW           APPS_BICC_EXT_FILES%ROWTYPE;
+        L_TAB_DEF_ROW            APPS_BICC_TAB_DEF%ROWTYPE;
+        L_DOES_TAB_EXIST         VARCHAR2(1)   := 'N';
+        L_EXT_TABLE_NAME         VARCHAR2(400) := G_EXT_TABLE_NAME;
+        L_EXT_TABLE_CREATE_SQL   CLOB;
+        L_SHOULD_EXT_TBL_DROP    VARCHAR2(1)   := 'N';
+        L_MAIN_TABLE_CREATE_STMT CLOB;
+        L_DELETE_EXISTING_STMT   CLOB;
+        L_INSERT_ALL_STMT        CLOB;
     BEGIN
         SELECT
             *
@@ -343,6 +349,7 @@ CREATE OR REPLACE PACKAGE BODY APPS_BICC_UTIL_PKG IS
             APPS_BICC_EXT_FILES
         WHERE
             DOCUMENT_ID = P_DOCUMENT_ID;
+        L_PROCEDURE_AUDIT_NAME := C_PROCEDURE_AUDIT_NAME || ' ' || L_EXT_FILE_ROW.DOCUMENT_ID;
 
         SELECT
             *
@@ -352,44 +359,62 @@ CREATE OR REPLACE PACKAGE BODY APPS_BICC_UTIL_PKG IS
         WHERE
                 lower(L_EXT_FILE_ROW.FILE_NAME) LIKE '%' || replace(lower(VO_NAME), '.', '_') || '%';
 
+        IF L_EXT_FILE_ROW.STATUS <> G_FLAT_FILE_COMPLETED_STATUS THEN
 
-        L_EXT_TABLE_CREATE_SQL := GET_EXTERNAL_TABLE_CREATE_STMT(P_FILE_NAME => L_EXT_FILE_ROW.FILE_NAME);
-        -- Staging area görevi görecek olan external table oluşturuluyor (öncelikle varsa drop ediliyor)
-        SELECT
-            decode(count(*), 0, 'N', 'Y') AS SHOULD_DROP
-        INTO L_SHOULD_EXT_TBL_DROP
-        FROM
-            ALL_EXTERNAL_TABLES
-        WHERE
-            TABLE_NAME = L_EXT_TABLE_NAME;
 
-        IF L_SHOULD_EXT_TBL_DROP = 'Y' THEN
-            EXECUTE IMMEDIATE 'DROP TABLE ' || L_EXT_TABLE_NAME;
+            L_EXT_TABLE_CREATE_SQL := GET_EXTERNAL_TABLE_CREATE_STMT(P_FILE_NAME => L_EXT_FILE_ROW.FILE_NAME);
+            -- Staging area görevi görecek olan external table oluşturuluyor (öncelikle varsa drop ediliyor)
+            SELECT
+                decode(count(*), 0, 'N', 'Y') AS SHOULD_DROP
+            INTO L_SHOULD_EXT_TBL_DROP
+            FROM
+                ALL_EXTERNAL_TABLES
+            WHERE
+                TABLE_NAME = L_EXT_TABLE_NAME;
+
+            IF L_SHOULD_EXT_TBL_DROP = 'Y' THEN
+                EXECUTE IMMEDIATE 'DROP TABLE ' || L_EXT_TABLE_NAME;
+            END IF;
+
+            EXECUTE IMMEDIATE L_EXT_TABLE_CREATE_SQL;
+
+            -- Ana tablonun varlığı kontrol ediliyor, yoksa oluşturma DDL'i çalıştırılıyor
+            SELECT
+                decode(count(*), 0, 'N', 'Y') AS DOES_TAB_EXIST
+            INTO L_DOES_TAB_EXIST
+            FROM
+                USER_TABLES
+            WHERE
+                TABLE_NAME = L_TAB_DEF_ROW.TAB_NAME;
+
+            L_MAIN_TABLE_CREATE_STMT := GET_MAIN_TABLE_CREATE_STMT(P_FILE_NAME => L_EXT_FILE_ROW.FILE_NAME);
+
+            IF L_DOES_TAB_EXIST = 'N' THEN
+                EXECUTE IMMEDIATE L_MAIN_TABLE_CREATE_STMT;
+            END IF;
+
+            -- Hem ana tabloda varolan hem de external tabloda yeni gelmiş kayıtlar siliniyor (Güncellenmiş)
+            L_DELETE_EXISTING_STMT := GET_DELETE_EXISTING_STMT(P_FILE_NAME => L_EXT_FILE_ROW.FILE_NAME);
+            IF L_DELETE_EXISTING_STMT IS NOT NULL THEN
+                EXECUTE IMMEDIATE L_DELETE_EXISTING_STMT;
+            END IF;
+
+            -- Ana tabloya tüm kayıtlar insert ediliyor
+            L_INSERT_ALL_STMT := GET_INSERT_ALL_STMT(P_FILE_NAME => L_EXT_FILE_ROW.FILE_NAME);
+            IF L_INSERT_ALL_STMT IS NOT NULL THEN
+                EXECUTE IMMEDIATE L_INSERT_ALL_STMT;
+            END IF;
+
+            UPDATE
+                APPS_BICC_EXT_FILES
+            SET
+                STATUS = G_FLAT_FILE_COMPLETED_STATUS,
+                LAST_UPDATE_DATE = systimestamp,
+                LAST_UPDATED_BY = L_PROCEDURE_AUDIT_NAME
+            WHERE
+                DOCUMENT_ID = L_EXT_FILE_ROW.DOCUMENT_ID;
+            COMMIT;
         END IF;
-
-        EXECUTE IMMEDIATE L_EXT_TABLE_CREATE_SQL;
-
-        -- Ana tablonun varlığı kontrol ediliyor, yoksa oluşturma DDL'i çalıştırılıyor
-        SELECT
-            decode(count(*), 0, 'Y', 'N') AS DOES_TAB_EXIST
-        INTO L_DOES_TAB_EXIST
-        FROM
-            USER_TABLES
-        WHERE
-            TABLE_NAME = L_TAB_DEF_ROW.TAB_NAME;
-
-        IF L_DOES_TAB_EXIST = 'N' THEN
-            EXECUTE IMMEDIATE GET_EXTERNAL_TABLE_CREATE_STMT(P_FILE_NAME => L_EXT_FILE_ROW.FILE_NAME);
-        END IF;
-
-        -- Hem ana tabloda varolan hem de external tabloda yeni gelmiş kayıtlar siliniyor (Güncellenmiş)
-        L_DELETE_EXISTING_STMT := GET_DELETE_EXISTING_STMT(P_FILE_NAME => L_EXT_FILE_ROW.FILE_NAME);
-        IF L_DELETE_EXISTING_STMT IS NOT NULL THEN
-            EXECUTE IMMEDIATE L_DELETE_EXISTING_STMT;
-        END IF;
-
-        -- Ana tabloya tüm kayıtlar insert ediliyor
-
         P_STATUS_CODE := 'S';
     EXCEPTION
         WHEN OTHERS THEN P_STATUS_CODE := DBMS_UTILITY.FORMAT_ERROR_BACKTRACE || ' Hata: ' || sqlerrm;
