@@ -192,7 +192,7 @@ CREATE OR REPLACE PACKAGE BODY APPS_BICC_UTIL_PKG IS
                 COL_SIZE,
                 COL_PRECISION,
                 decode(
-                        COL_DATATYPE, 'VARCHAR', ('VARCHAR2(' || COL_SIZE || ')'),
+                        COL_DATATYPE, 'VARCHAR', ('VARCHAR2(' || (to_number(COL_SIZE) + 30) || ')'),
                         'NUMERIC', ('NUMBER' || '(*,' || 8 || ')'),
                         'TIMESTAMP', COL_DATATYPE,
                         'DATE', COL_DATATYPE,
@@ -248,7 +248,7 @@ CREATE OR REPLACE PACKAGE BODY APPS_BICC_UTIL_PKG IS
                                   chr(13) ||
                                   ')
                                 )
-                                REJECT LIMIT UNLIMITED';
+                                REJECT LIMIT 0';
         RETURN L_EXT_TABLE_CREATE_SQL;
     END GET_EXTERNAL_TABLE_CREATE_STMT;
 
