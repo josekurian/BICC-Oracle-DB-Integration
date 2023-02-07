@@ -26,6 +26,10 @@ CREATE OR REPLACE PACKAGE BODY APPS_BICC_UTIL_PKG IS
                 RETURN APPS_BICC_UTIL_PKG.G_FLAT_FILE_DOWNLOADED_STATUS;
             ELSIF P_LOOKUP_CODE = 'FLAT_FILE_UNZIPPED_STATUS' THEN
                 RETURN APPS_BICC_UTIL_PKG.G_FLAT_FILE_UNZIPPED_STATUS;
+            ELSIF P_LOOKUP_CODE = 'FLAT_FILE_DELETED_STATUS' THEN
+                RETURN APPS_BICC_UTIL_PKG.G_FLAT_FILE_DELETED_STATUS;
+            ELSIF P_LOOKUP_CODE = 'FLAT_FILE_COMPLETED_STATUS' THEN
+                RETURN APPS_BICC_UTIL_PKG.G_FLAT_FILE_COMPLETED_STATUS;
             ELSE
                 RETURN NULL;
             END IF;
@@ -68,7 +72,7 @@ CREATE OR REPLACE PACKAGE BODY APPS_BICC_UTIL_PKG IS
                 COL_SIZE,
                 COL_PRECISION,
                 decode(
-                        COL_DATATYPE, 'VARCHAR', ('VARCHAR2(' || COL_SIZE || ')'),
+                        COL_DATATYPE, 'VARCHAR', ('VARCHAR2(' || (to_number(COL_SIZE) + 30)  || ' BYTE)'),
                         'NUMERIC', ('NUMBER' || '(*,' || 8 || ')'),
                         'TIMESTAMP', COL_DATATYPE,
                         'DATE', COL_DATATYPE,
@@ -192,7 +196,7 @@ CREATE OR REPLACE PACKAGE BODY APPS_BICC_UTIL_PKG IS
                 COL_SIZE,
                 COL_PRECISION,
                 decode(
-                        COL_DATATYPE, 'VARCHAR', ('VARCHAR2(' || COL_SIZE || ')'),
+                        COL_DATATYPE, 'VARCHAR', ('VARCHAR2(' || (to_number(COL_SIZE) + 30) || ' BYTE)'),
                         'NUMERIC', ('NUMBER' || '(*,' || 8 || ')'),
                         'TIMESTAMP', COL_DATATYPE,
                         'DATE', COL_DATATYPE,
@@ -248,7 +252,7 @@ CREATE OR REPLACE PACKAGE BODY APPS_BICC_UTIL_PKG IS
                                   chr(13) ||
                                   ')
                                 )
-                                REJECT LIMIT UNLIMITED';
+                                REJECT LIMIT 0';
         RETURN L_EXT_TABLE_CREATE_SQL;
     END GET_EXTERNAL_TABLE_CREATE_STMT;
 
@@ -360,7 +364,7 @@ CREATE OR REPLACE PACKAGE BODY APPS_BICC_UTIL_PKG IS
         WHERE
                 lower(L_EXT_FILE_ROW.FILE_NAME) LIKE '%' || replace(lower(VO_NAME), '.', '_') || '%';
 
-        IF L_EXT_FILE_ROW.STATUS <> G_FLAT_FILE_COMPLETED_STATUS THEN
+        IF L_EXT_FILE_ROW.STATUS = G_FLAT_FILE_DOWNLOADED_STATUS THEN
 
 
             L_EXT_TABLE_CREATE_SQL := GET_EXTERNAL_TABLE_CREATE_STMT(P_FILE_NAME => L_EXT_FILE_ROW.FILE_NAME);

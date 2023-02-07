@@ -23,7 +23,9 @@ CREATE OR REPLACE PACKAGE APPS_BICC_UTIL_PKG IS
     -- Flat file zip'ten çıkarıldıktan sonra işlenmeyi beklerken alacağı statü bilgisi
     G_FLAT_FILE_UNZIPPED_STATUS APPS_BICC_EXT_FILES.STATUS%TYPE := 'Tamamlandi';
     -- Flat file okunup ana tabloya yazıldıktan sonra alacağı statü
-    G_FLAT_FILE_COMPLETED_STATUS APPS_BICC_EXT_FILES.STATUS%TYPE := 'Tamamlandi';
+    G_FLAT_FILE_COMPLETED_STATUS APPS_BICC_EXT_FILES.STATUS%TYPE := 'Isleme Tamamlandi';
+    -- Flat file ile işimiz bittikten sonra silindiğinde alacağı statü
+    G_FLAT_FILE_DELETED_STATUS APPS_BICC_EXT_FILES.STATUS%TYPE := 'Tamamlandi';
     -- Flat file'ların yazılacağı işletim sistemi dizini
     G_FLAT_FILE_DOWNLOAD_DIR VARCHAR2(4000) := '/oraarch/external';
     -- Dosyaları okurken birkaç satırlık kayıplar aldığımızı farkettik, aşağıdaki parametre default olarak 500000 civarında olmasından kaynaklanıyormuş
