@@ -71,14 +71,13 @@ CREATE OR REPLACE PACKAGE BODY APPS_BICC_UTIL_PKG IS
                         COL_DATATYPE, 'VARCHAR', ('VARCHAR2(' || COL_SIZE || ')'),
                         'NUMERIC', ('NUMBER' || '(*,' || COL_PRECISION || ')'),
                         'TIMESTAMP', COL_DATATYPE,
-                        'DATE', 'COL_DATATYPE',
+                        'DATE', COL_DATATYPE,
                         (COL_DATATYPE || '(' || COL_SIZE || ',' || COL_PRECISION || ')')
                     ) AS DDL_DATATYPE
             FROM
                 APPS_BICC_TAB_COLUMNS
             WHERE
                     lower(P_FILE_NAME) LIKE '%' || replace(lower(VO_NAME), '.', '_') || '%'
-            ORDER BY COL_DATATYPE
         ;
     BEGIN
         SELECT
@@ -196,7 +195,7 @@ CREATE OR REPLACE PACKAGE BODY APPS_BICC_UTIL_PKG IS
                         COL_DATATYPE, 'VARCHAR', ('VARCHAR2(' || COL_SIZE || ')'),
                         'NUMERIC', ('NUMBER' || '(*,' || COL_PRECISION || ')'),
                         'TIMESTAMP', COL_DATATYPE,
-                        'DATE', 'COL_DATATYPE',
+                        'DATE', COL_DATATYPE,
                         (COL_DATATYPE || '(' || COL_SIZE || ',' || COL_PRECISION || ')')
                     ) AS SC_DT_PART,
                 decode(
@@ -231,6 +230,7 @@ CREATE OR REPLACE PACKAGE BODY APPS_BICC_UTIL_PKG IS
                                     DEFAULT DIRECTORY "' || L_EXT_TABLE_DIR_NAME || '"
                                 ACCESS PARAMETERS (
                                     records delimited  by newline
+                                    SKIP 0
                                     READSIZE ' || G_EXT_TABLE_READSIZE || '
                                     NOLOGFILE
                                     NOBADFILE
@@ -415,6 +415,17 @@ CREATE OR REPLACE PACKAGE BODY APPS_BICC_UTIL_PKG IS
             WHERE
                 DOCUMENT_ID = L_EXT_FILE_ROW.DOCUMENT_ID;
             COMMIT;
+            SELECT
+                decode(count(*), 0, 'N', 'Y') AS SHOULD_DROP
+            INTO L_SHOULD_EXT_TBL_DROP
+            FROM
+                ALL_EXTERNAL_TABLES
+            WHERE
+                TABLE_NAME = L_EXT_TABLE_NAME;
+
+            IF L_SHOULD_EXT_TBL_DROP = 'Y' THEN
+                EXECUTE IMMEDIATE 'DROP TABLE ' || L_EXT_TABLE_NAME;
+            END IF;
         END IF;
         P_STATUS_CODE := 'S';
     EXCEPTION
