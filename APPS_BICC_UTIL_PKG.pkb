@@ -231,6 +231,7 @@ CREATE OR REPLACE PACKAGE BODY APPS_BICC_UTIL_PKG IS
                                     DEFAULT DIRECTORY "' || L_EXT_TABLE_DIR_NAME || '"
                                 ACCESS PARAMETERS (
                                     records delimited  by newline
+                                    READSIZE ' || G_EXT_TABLE_READSIZE || '
                                     NOLOGFILE
                                     NOBADFILE
                                     NODISCARDFILE
